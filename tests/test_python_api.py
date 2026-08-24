@@ -8,14 +8,12 @@ Tests verify:
 """
 
 import asyncio
-import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, List
+from typing import List
 from unittest.mock import Mock
 
 import pytest
-
 from tether import StepContext, tether
 
 

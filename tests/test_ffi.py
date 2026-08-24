@@ -10,9 +10,9 @@ NOTE: This test requires the compiled Rust module to be installed.
 The extension module must be built via 'maturin develop' before running this test.
 """
 
-import tempfile
 import os
-from pathlib import Path
+import sys
+import tempfile
 
 
 def test_tether_engine_basic_workflow():
@@ -122,8 +122,8 @@ if __name__ == "__main__":
         test_tether_engine_multiple_keys()
         print()
         print("All smoke tests passed!")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # intentional catch-all for the smoke test
         print(f"Test failed: {e}")
         import traceback
         traceback.print_exc()
-        exit(1)
+        sys.exit(1)

@@ -14,15 +14,11 @@ Test strategy:
 
 import asyncio
 import os
-import signal
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
-from typing import Any, Callable, Coroutine
 
 import pytest
-
 from tether import StepContext, tether
 
 
@@ -53,6 +49,7 @@ class TestChaosKillMidWorkflow:
             cwd=str(wal_and_work_dir),
             timeout=10,
             capture_output=False,  # Allow output to be seen if needed
+            check=False,
         )
 
         # Verify the process died abnormally (non-zero exit code)
@@ -74,6 +71,7 @@ class TestChaosKillMidWorkflow:
             cwd=str(wal_and_work_dir),
             timeout=10,
             capture_output=False,
+            check=False,
         )
 
         # Second invocation must succeed
@@ -112,13 +110,13 @@ class TestChaosUnhandledError:
             pytest.fail(
                 "TetherEngine should have raised an exception for invalid path, but didn't"
             )
-        except (OSError, IOError, RuntimeError) as e:
+        except (OSError, RuntimeError) as e:
             # Expect a clean, catchable exception (not a Rust panic that manifests as segfault)
             # RuntimeError can be raised by PyO3 wrapping Rust errors
-            assert isinstance(e, (OSError, IOError, RuntimeError)), (
+            assert isinstance(e, (OSError, RuntimeError)), (
                 f"Expected a clean exception, got {type(e).__name__}: {e}"
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # intentional catch-all for unexpected exception types
             pytest.fail(
                 f"Got an unexpected exception type {type(e).__name__}: {e}. "
                 "Rust errors should surface as OSError/IOError/RuntimeError, not panics."

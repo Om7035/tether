@@ -2,14 +2,12 @@
 Python API for Tether: @tether decorator and StepContext for crash-proof execution.
 """
 
-import asyncio
 import contextvars
 import functools
 import inspect
-import os
 import pickle
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Optional, TypeVar, Union
+from typing import Any, Callable, Coroutine, TypeVar, Union
 
 from .tether import TetherEngine
 
