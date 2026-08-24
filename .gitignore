@@ -11,3 +11,6 @@ dist/
 build/
 *.log
 *.egg-info/
+*.pyd
+*.so
+.pytest_cache/
