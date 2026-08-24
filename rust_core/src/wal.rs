@@ -2,7 +2,6 @@ use crate::error::TetherError;
 use crate::Result;
 use memmap2::MmapMut;
 use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Append-only WAL. Writes accumulate in an in-memory buffer; `sync` flushes

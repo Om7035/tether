@@ -459,6 +459,7 @@ dependencies = [
  "crossbeam",
  "dashmap",
  "memmap2",
+ "parking_lot",
  "pyo3",
  "serde",
  "serde_json",
