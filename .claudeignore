@@ -1,0 +1,9 @@
+target/
+venv/
+.venv/
+__pycache__/
+*.pyc
+.maturin/
+dist/
+build/
+*.log
