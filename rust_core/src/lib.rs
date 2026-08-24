@@ -123,10 +123,14 @@ impl TetherEngine {
     }
 
     /// Writes a key-value pair to state (marks pending) and appends to WAL.
-    /// The WAL append and sync operations release the GIL via py.allow_threads.
+    /// Buffers in memory only -- does NOT sync to disk. A write with no
+    /// following commit() is never flushed, so a crash before commit leaves
+    /// no trace of it in the WAL, which is the correct outcome (the step
+    /// re-runs on the next attempt). Deferring the flush to commit() means
+    /// a checkpoint costs one disk sync instead of two.
     pub fn write(
         &mut self,
-        py: Python,
+        _py: Python,
         key: &str,
         value: &[u8],
     ) -> PyResult<()> {
@@ -135,24 +139,23 @@ impl TetherEngine {
             .mark_pending(key.to_string(), value.to_vec())
             .map_err(|e| -> PyErr { e.into() })?;
 
-        // Encode the key-value pair and append to WAL, with GIL released.
+        // Buffer the WRITE record; no disk I/O yet, so no GIL release needed.
         let encoded = encode_entry(key, value);
         let wal = Arc::clone(&self.wal);
-        py.allow_threads(|| {
+        {
             let mut wal_guard = wal.lock();
-            wal_guard.append(&encoded)?;
-            wal_guard.sync()?;
-            Ok::<(), TetherError>(())
-        })
-        .map_err(|e| -> PyErr { e.into() })?;
+            wal_guard
+                .append(&encoded)
+                .map_err(|e| -> PyErr { e.into() })?;
+        }
 
         Ok(())
     }
 
-    /// Commits a pending key: appends a COMMIT record to the WAL (so replay
-    /// can tell this write completed phase two) and marks it Committed in
-    /// state. Both happen inside py.allow_threads since the WAL append syncs
-    /// to disk.
+    /// Commits a pending key: appends a COMMIT record to the WAL and syncs
+    /// once, flushing both it and the preceding WRITE record together in a
+    /// single disk flush. Marks the key Committed in state. Runs inside
+    /// py.allow_threads since this is where the actual disk I/O happens.
     pub fn commit(&mut self, py: Python, key: &str) -> PyResult<()> {
         let state = Arc::clone(&self.state);
         let wal = Arc::clone(&self.wal);
