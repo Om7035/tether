@@ -22,6 +22,7 @@ impl WriteAheadLog {
             .create(true)
             .read(true)
             .write(true)
+            .truncate(false)
             .open(&path)
             .map_err(TetherError::Io)?;
         let file_len = file.metadata().map_err(TetherError::Io)?.len();
