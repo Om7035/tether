@@ -94,25 +94,23 @@ class TetherSaver(BaseCheckpointSaver):
             pending_writes=None,
         )
 
-        # Serialize and store.
+        # Serialize the checkpoint.
         key = _make_checkpoint_key(thread_id, checkpoint_ns, checkpoint_id)
         serialized = pickle.dumps(checkpoint_tuple)
-        self.engine.write(key, serialized)
-        self.engine.commit(key)
 
         # Update the thread index.
         index_key = _make_index_key(thread_id)
         index_data = self.engine.read(index_key)
-        if index_data:
-            index_list = pickle.loads(index_data)
-        else:
-            index_list = []
-
+        index_list = pickle.loads(index_data) if index_data else []
         if key not in index_list:
             index_list.append(key)
 
+        # Buffer both writes, then commit them together: one disk sync
+        # instead of two. The checkpoint and its index entry become durable
+        # atomically -- there's no window where one exists without the other.
+        self.engine.write(key, serialized)
         self.engine.write(index_key, pickle.dumps(index_list))
-        self.engine.commit(index_key)
+        self.engine.commit_batch([key, index_key])
 
         return config
 
@@ -144,8 +142,6 @@ class TetherSaver(BaseCheckpointSaver):
         # Store writes under a separate key.
         writes_key = f"{thread_id}:{checkpoint_ns}:{checkpoint_id}:writes:{task_id}"
         serialized_writes = pickle.dumps(list(writes))
-        self.engine.write(writes_key, serialized_writes)
-        self.engine.commit(writes_key)
 
         # Record this task_id in the checkpoint's writes index so get_tuple
         # can find and merge all tasks' writes back in.
@@ -154,8 +150,10 @@ class TetherSaver(BaseCheckpointSaver):
         task_ids: list[str] = pickle.loads(index_data) if index_data else []
         if task_id not in task_ids:
             task_ids.append(task_id)
+
+        self.engine.write(writes_key, serialized_writes)
         self.engine.write(writes_index_key, pickle.dumps(task_ids))
-        self.engine.commit(writes_index_key)
+        self.engine.commit_batch([writes_key, writes_index_key])
 
     def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """

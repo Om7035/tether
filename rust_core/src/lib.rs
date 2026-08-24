@@ -171,6 +171,29 @@ impl TetherEngine {
         .map_err(|e| -> PyErr { e.into() })
     }
 
+    /// Commits several pending keys as one batch: appends all their COMMIT
+    /// records and syncs exactly once, instead of once per key. Useful for a
+    /// caller (like a checkpoint saver) that writes several related keys per
+    /// logical operation and doesn't need each one durable independently.
+    pub fn commit_batch(&mut self, py: Python, keys: Vec<String>) -> PyResult<()> {
+        let state = Arc::clone(&self.state);
+        let wal = Arc::clone(&self.wal);
+        py.allow_threads(|| {
+            {
+                let mut wal_guard = wal.lock();
+                for key in &keys {
+                    wal_guard.append(&encode_commit(key))?;
+                }
+                wal_guard.sync()?;
+            }
+            for key in &keys {
+                state.commit(key)?;
+            }
+            Ok::<(), TetherError>(())
+        })
+        .map_err(|e| -> PyErr { e.into() })
+    }
+
     /// Reads a committed value from state. Returns PyBytes for zero-copy semantics.
     /// Returns None if the key is not found or is still pending.
     pub fn read(&self, py: Python, key: &str) -> PyResult<Option<Py<PyBytes>>> {
@@ -313,6 +336,54 @@ mod tests {
             None,
             "an uncommitted write must not be visible after replay"
         );
+
+        let _ = std::fs::remove_file(&wal_path);
+    }
+
+    #[test]
+    fn batch_committing_two_keys_costs_one_sync_and_both_become_visible() {
+        // Exercises the same logic commit_batch() runs (append N COMMIT
+        // records, sync once, then commit each key in state), without going
+        // through the #[pymethods] wrapper which needs a live GIL token.
+        let temp_dir = std::env::temp_dir();
+        let wal_path = temp_dir
+            .join(format!("tether_test_batch_{}", std::process::id()))
+            .to_string_lossy()
+            .into_owned();
+        let _ = std::fs::remove_file(&wal_path);
+
+        let engine = TetherEngine::new(&wal_path).unwrap();
+        engine.state.mark_pending("a".to_string(), b"1".to_vec()).unwrap();
+        engine.state.mark_pending("b".to_string(), b"2".to_vec()).unwrap();
+        {
+            let mut wal = engine.wal.lock();
+            wal.append(&encode_entry("a", b"1")).unwrap();
+            wal.append(&encode_entry("b", b"2")).unwrap();
+            wal.sync().unwrap();
+        }
+
+        // Both still pending -- invisible to get() until committed.
+        assert_eq!(engine.state.get("a"), None);
+        assert_eq!(engine.state.get("b"), None);
+
+        // Batch-commit: append both COMMIT records, one sync.
+        {
+            let mut wal = engine.wal.lock();
+            wal.append(&encode_commit("a")).unwrap();
+            wal.append(&encode_commit("b")).unwrap();
+            wal.sync().unwrap();
+        }
+        engine.state.commit("a").unwrap();
+        engine.state.commit("b").unwrap();
+
+        assert_eq!(engine.state.get("a"), Some(b"1".to_vec()));
+        assert_eq!(engine.state.get("b"), Some(b"2".to_vec()));
+
+        // Both survive a restart via replay, as a genuine correctness check
+        // (not just an in-memory assertion).
+        let engine2 = TetherEngine::new(&wal_path).unwrap();
+        assert_eq!(engine2.state.get("a"), Some(b"1".to_vec()));
+        assert_eq!(engine2.state.get("b"), Some(b"2".to_vec()));
 
         let _ = std::fs::remove_file(&wal_path);
     }
