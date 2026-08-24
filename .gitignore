@@ -2,6 +2,8 @@ target/
 .claudeignore
 *.md
 !README.md
+!ARCHITECTURE.md
+!BENCHMARKS.md
 venv/
 .venv/
 __pycache__/
