@@ -4,6 +4,7 @@ target/
 !README.md
 !ARCHITECTURE.md
 !BENCHMARKS.md
+!CONTRIBUTING.md
 venv/
 .venv/
 __pycache__/

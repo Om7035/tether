@@ -1,12 +1,26 @@
 # Tether
 
-An embedded, zero-copy, durable execution engine for AI agents. Tether wraps
-volatile, crash-prone Python workflows in a crash-proof layer backed by a
-custom Rust write-ahead log — no SQLite, no external database.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](rust_core/Cargo.toml)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](pyproject.toml)
 
-Drop-in replacement for LangGraph checkpointers: swap `SqliteSaver` for
-`TetherSaver` (see [`tether_langgraph`](python_pkg/tether_langgraph/)) and
-LangGraph's state persists through the same Rust WAL.
+**Tether makes crash-prone AI agent workflows crash-proof, without a database.**
+
+Long-running agents call expensive things — LLMs, tool calls, web requests —
+in sequence. If the process dies halfway through, most frameworks either lose
+all progress or bolt on Postgres/SQLite just to checkpoint state. Tether is
+an embedded durability layer: a `@tether` decorator plus a custom Rust
+write-ahead log, so a step that already completed is never re-run, and there
+is nothing to install, host, or configure.
+
+- **No SQLite, no external database.** State lives in a WAL file next to
+  your code.
+- **Drop-in for LangGraph.** Swap `SqliteSaver` for `TetherSaver` (see
+  [`tether_langgraph`](python_pkg/tether_langgraph/)) — same interface, same
+  Rust WAL underneath, no code changes beyond the import.
+- **Zero-copy, GIL-aware.** Large payloads (LLM context) cross the
+  Python/Rust boundary via buffer protocol, not JSON. Disk I/O releases the
+  GIL so other Python work keeps running.
 
 ## 30-Second Quickstart
 
@@ -42,6 +56,19 @@ running: if `name` already has a committed result from a prior run, `fn` is
 skipped entirely and the saved result is returned. If `fn` raises, nothing is
 committed, so the step retries on the next run. A step that already finished
 is never re-executed — the guarantee this project exists for.
+
+## Why not just use LangGraph's SQLite checkpointer?
+
+| | LangGraph + SQLite | Tether |
+|---|---|---|
+| External dependency | SQLite file + driver | None |
+| Large-payload handling | Serialize to JSON, copy | Zero-copy buffer protocol |
+| Concurrency | SQLite locking | Lock-free (`DashMap`) |
+| LangGraph integration | Native | Drop-in via `TetherSaver` |
+| Use outside LangGraph | No | Yes — plain `@tether` decorator |
+
+If you're not on LangGraph at all, Tether still works as a standalone
+durability layer for any async Python workflow.
 
 ## Install (development)
 
@@ -97,6 +124,19 @@ FFI boundary, and the GIL-release strategy.
 ## Status
 
 Core engine (WAL, 2PC state machine, FFI bridge, Python API, LangGraph
-adapter) is implemented and tested. No published wheels yet — see
+adapter) is implemented and tested, including a chaos suite that kills a
+real subprocess mid-workflow. No published wheels yet — see
 [BENCHMARKS.md](BENCHMARKS.md) for the not-yet-run performance comparison
 against LangGraph's SQLite checkpointer.
+
+This is an early-stage project. APIs may change before a 1.0 release.
+
+## Contributing
+
+Small, focused PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the
+project's rules (no SQLite, no panics across FFI, no `std::sync::Mutex`
+across the boundary) and how to run the test suite.
+
+## License
+
+[MIT](LICENSE)
